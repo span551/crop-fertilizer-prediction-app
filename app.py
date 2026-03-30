@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 # -------------------------------
 # CONFIG
 # -------------------------------
-st.set_page_config(page_title="Agri AI", layout="centered")
+st.set_page_config(page_title="MahaKrishi AI", layout="centered")
 
 # -------------------------------
 # CSS
