@@ -1,8 +1,8 @@
-import streamlit as st 
+import streamlit as st  
 import numpy as np
 import pickle
 import requests
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 # -------------------------------
 # CONFIG
@@ -14,21 +14,53 @@ st.set_page_config(page_title="Agri AI", layout="centered")
 # -------------------------------
 st.markdown("""
 <style>
+
+body {
+    background-color: #f5f7fa;
+}
+
 .header {
-    background-color: #2e7d32;
-    padding: 15px;
-    border-radius: 10px;
+    background: linear-gradient(90deg, #1b5e20, #43a047);
+    padding: 18px;
+    border-radius: 12px;
     color: white;
     text-align: center;
     font-size: 28px;
     font-weight: bold;
 }
+
 .card {
-    background-color: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
+    background: white;
+    padding: 18px;
+    border-radius: 16px;
+    box-shadow: 0px 6px 18px rgba(0,0,0,0.08);
+    margin-bottom: 15px;
 }
+
+.top-card {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    padding: 18px;
+    border-radius: 16px;
+    border-left: 6px solid #2e7d32;
+}
+
+.chat-bubble {
+    background: #e8f5e9;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+}
+
+div.stButton > button {
+    background: linear-gradient(90deg, #2e7d32, #66bb6a);
+    color: white;
+    border-radius: 25px;
+    height: 3em;
+    width: 100%;
+    font-size: 16px;
+    font-weight: bold;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -44,7 +76,48 @@ except Exception as e:
     st.error(f"❌ Error loading models: {e}")
 
 # -------------------------------
-# WEATHER API (ONLY TEMP USED)
+# 🌾 YIELD ESTIMATION FUNCTION
+# -------------------------------
+def estimate_yield(crop, n, p, k, ph, rainfall, temp):
+
+    base_yield = {
+        "rice": 20,
+        "wheat": 18,
+        "maize": 22,
+        "sugarcane": 350,
+        "cotton": 10,
+        "millet": 12,
+        "pulses": 8
+    }
+
+    crop = crop.lower()
+    base = base_yield.get(crop, 15)
+
+    nutrient_score = (n + p + k) / 300
+
+    if 6 <= ph <= 7.5:
+        ph_factor = 1
+    else:
+        ph_factor = 0.8
+
+    if rainfall > 800:
+        rain_factor = 1
+    elif rainfall > 400:
+        rain_factor = 0.8
+    else:
+        rain_factor = 0.6
+
+    if 20 <= temp <= 35:
+        temp_factor = 1
+    else:
+        temp_factor = 0.85
+
+    yield_estimate = base * nutrient_score * ph_factor * rain_factor * temp_factor
+
+    return round(yield_estimate, 2)
+
+# -------------------------------
+# WEATHER API
 # -------------------------------
 API_KEY = "8309fcb8b95494c5b9bc81eda528ae31"
 
@@ -53,7 +126,6 @@ def get_temperature(city):
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
         response = requests.get(url)
         data = response.json()
-
         if response.status_code == 200:
             return data['main']['temp']
         else:
@@ -62,7 +134,7 @@ def get_temperature(city):
         return None
 
 # -------------------------------
-# 🌧 SEASONAL RAINFALL DATA
+# RAINFALL DATA
 # -------------------------------
 rainfall_data = {
     "Nagpur": {"Kharif": 900, "Rabi": 100, "Zaid": 50},
@@ -83,17 +155,15 @@ rainfall_data = {
 # HEADER
 # -------------------------------
 st.markdown('<div class="header">🌾 Smart Agriculture Assistant</div>', unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
 
 # -------------------------------
-# CITY + SEASON
+# LOCATION
 # -------------------------------
 st.subheader("📍 Location & Season")
 
 city = st.selectbox("Select City", list(rainfall_data.keys()))
 season = st.selectbox("Select Season", ["Kharif", "Rabi", "Zaid"])
 
-# Fetch temperature
 if st.button("Fetch Temperature"):
     temp = get_temperature(city)
     if temp:
@@ -105,11 +175,9 @@ if st.button("Fetch Temperature"):
 # -------------------------------
 # INPUTS
 # -------------------------------
-st.markdown("---")
-st.subheader("Enter Soil Details")
+st.markdown("### 🌱 Soil Details")
 
 col1, col2, col3 = st.columns(3)
-
 with col1:
     nitrogen = st.number_input("Nitrogen", 0, 400, 50)
 with col2:
@@ -118,16 +186,13 @@ with col3:
     potassium = st.number_input("Potassium", 0, 400, 35)
 
 col4, col5, col6 = st.columns(3)
-
 with col4:
     temperature = st.number_input("Temperature", 0.0, 50.0, float(st.session_state.get("temp", 25.0)))
 
-# 🌧 Smart Rainfall
-seasonal_rainfall = rainfall_data.get(city, {}).get(season, 100)
-rainfall = seasonal_rainfall
+rainfall = rainfall_data.get(city, {}).get(season, 100)
 
 with col5:
-    st.number_input("Rainfall (auto)", value=rainfall, disabled=True)
+    st.number_input("Rainfall", value=rainfall, disabled=True)
 
 with col6:
     ph = st.number_input("pH", 0.0, 14.0, 6.5)
@@ -135,17 +200,12 @@ with col6:
 # -------------------------------
 # BUTTON
 # -------------------------------
-st.markdown("<br>", unsafe_allow_html=True)
-center_col = st.columns([1,2,1])
-with center_col[1]:
-    predict_btn = st.button("Predict")
+predict_btn = st.button("🚀 Get Recommendation")
 
 # -------------------------------
 # PREDICTION
 # -------------------------------
 if predict_btn:
-
-    st.warning("⚠️ These predictions are based on dataset patterns and may vary in real-world agricultural conditions.")
 
     features = np.array([[nitrogen, phosphorus, potassium, ph, rainfall, temperature]])
 
@@ -158,42 +218,96 @@ if predict_btn:
     fert_pred = fert_model.predict(features)
     fert_name = le_fert.inverse_transform(fert_pred)[0]
 
-    st.markdown("---")
+    # 🌾 BEST CROP
+    st.markdown("### 🌾 Best Crop")
+    st.markdown(f"""
+    <div class="top-card">
+        <h2>🥇 {top3_crops[0]}</h2>
+        <p>Confidence: {top3_probs[0]*100:.2f}%</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # 🌱 Crop
-    st.subheader("🌱 Crop Recommendations")
+    # 🎯 CONFIDENCE GAUGE
+    confidence = top3_probs[0] * 100
+    fig_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=confidence,
+        title={'text': "AI Confidence"},
+        gauge={'axis': {'range': [0, 100]}}
+    ))
+    st.plotly_chart(fig_gauge, use_container_width=True)
 
-    for i in range(3):
-        st.write(f"{i+1}. {top3_crops[i]} — {top3_probs[i]*100:.2f}%")
+    # 📊 BAR CHART
+    fig = go.Figure(go.Bar(
+        x=top3_probs,
+        y=top3_crops,
+        orientation='h',
+        text=[f"{p*100:.1f}%" for p in top3_probs],
+        textposition='auto'
+    ))
+    st.plotly_chart(fig, use_container_width=True)
 
-    # 📊 Chart
-    fig, ax = plt.subplots()
-    ax.bar(top3_crops, top3_probs)
-    ax.set_title("Confidence Scores")
-    st.pyplot(fig)
+    # 🧪 FERTILIZER
+    st.markdown(f"""
+    <div class="card">
+        <h3>🧪 Fertilizer Recommendation</h3>
+        <h2 style="color:#2e7d32;">{fert_name}</h2>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # 🧪 Fertilizer
-    st.subheader("🧪 Fertilizer Recommendation")
-    st.success(f"{fert_name}")
+    # 💧 IRRIGATION
+    st.markdown("### 💧 Irrigation Advice")
+    if rainfall < 100:
+        st.error("Low rainfall → Use irrigation")
+    elif rainfall < 300:
+        st.warning("Moderate rainfall → Consider irrigation")
+    else:
+        st.success("Sufficient rainfall")
 
-    # 🧠 Explainability
-    st.subheader("🧠 Why this recommendation?")
-    if rainfall > 800:
-        st.write("✔ High rainfall supports crops like rice & sugarcane")
-    if 20 < temperature < 35:
-        st.write("✔ Optimal temperature detected")
-    if 6 < ph < 7.5:
-        st.write("✔ Soil pH is ideal")
+    # 🤖 AI CHAT
+    st.markdown("### 🤖 AI Assistant")
 
-    # 🧪 Suggestions
-    st.subheader("🧪 Soil Suggestions")
     if nitrogen < 40:
-        st.warning("Low Nitrogen → Add Urea")
-    if phosphorus < 40:
-        st.warning("Low Phosphorus → Add DAP")
-    if potassium < 40:
-        st.warning("Low Potassium → Add MOP")
-    if ph < 5.5:
-        st.warning("Acidic soil → Add Lime")
-    if ph > 7.5:
-        st.warning("Alkaline soil → Add Gypsum")
+        st.markdown('<div class="chat-bubble">🌿 Nitrogen is low → Add Urea</div>', unsafe_allow_html=True)
+
+    if rainfall < 100:
+        st.markdown('<div class="chat-bubble">💧 Use drip irrigation</div>', unsafe_allow_html=True)
+
+    if 6 < ph < 7.5:
+        st.markdown('<div class="chat-bubble">🧪 Soil pH is optimal</div>', unsafe_allow_html=True)
+
+    # 🚜 YIELD
+    st.markdown("### 🚜 Expected Yield (Per Acre)")
+
+    predicted_yield = estimate_yield(
+        top3_crops[0],
+        nitrogen,
+        phosphorus,
+        potassium,
+        ph,
+        rainfall,
+        temperature
+    )
+
+    st.markdown(f"""
+    <div class="card">
+        <h2>🌾 {predicted_yield} Quintals / Acre</h2>
+        <p>Estimated yield for <b>{top3_crops[0]}</b></p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if predicted_yield > 20:
+        st.success("🔥 High yield expected!")
+    elif predicted_yield > 10:
+        st.warning("⚖️ Moderate yield expected")
+    else:
+        st.error("⚠️ Low yield — improve soil or irrigation")
+
+    # 🔍 WHY NOT
+    st.markdown("### 🔍 Why not other crops?")
+    for i in range(1, 3):
+        st.markdown(f"""
+        <div class="card">
+        ❌ {top3_crops[i]} has lower suitability ({top3_probs[i]*100:.2f}%)
+        </div>
+        """, unsafe_allow_html=True)
